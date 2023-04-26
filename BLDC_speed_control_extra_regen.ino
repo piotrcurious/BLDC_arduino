@@ -25,6 +25,7 @@
 #define MAX_SPD 1023 // Maximum speed reading from ADC
 #define MIN_SPD 0 // Minimum speed reading from ADC
 #define BRAKE_THR 512 // Threshold for regenerative braking mode
+#define BRAKE_BOOST 128 // threshold for extra regen braking
 
 // Define variables for motor state and control
 int hallState; // Current hall sensor state (0-5)
@@ -139,8 +140,13 @@ void loop() {
     
     mode = determineMode(); // Determine current mode based on speed
     
-    dutyCycle = map(speed,MIN_SPD,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
-    
+   // dutyCycle = map(speed,MIN_SPD,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
+ 
+   if(mode=1){
+      dutyCycle = map(speed,MIN_SPD+BRAKE_THR,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
+    } else {
+      dutyCycle = map(speed,MIN_SPD+BRAKE_BOOST,MAX_SPD-BRAKE_THR,MAX_DUTY,MIN_DUTY); // Map braking to duty cycle
+     }
     if (dutyCycle > MAX_DUTY - impedance) { // If duty cycle exceeds maximum allowed value based on impedance
       dutyCycle = MAX_DUTY - impedance; // Limit duty cycle to maximum allowed value
     }
