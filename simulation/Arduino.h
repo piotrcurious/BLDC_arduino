@@ -102,5 +102,8 @@ extern Serial_ Serial;
 void sync_sim();
 void setMockLoad(float torque);
 void setMockFriction(float b);
+void setMockNoise(float level);
+void setMockParamL(float L);
+void setMockParamR(float R);
 
 #endif

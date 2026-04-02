@@ -141,6 +141,24 @@ void setMockLoad(float torque) {
         write(pipe_out, s.c_str(), s.length());
     }
 }
+void setMockNoise(float level) {
+    if (pipe_out != -1) {
+        std::string s = "CMD_NOISE_" + std::to_string(level) + "\n";
+        write(pipe_out, s.c_str(), s.length());
+    }
+}
+void setMockParamL(float L) {
+    if (pipe_out != -1) {
+        std::string s = "CMD_PARAM_L_" + std::to_string(L) + "\n";
+        write(pipe_out, s.c_str(), s.length());
+    }
+}
+void setMockParamR(float R) {
+    if (pipe_out != -1) {
+        std::string s = "CMD_PARAM_R_" + std::to_string(R) + "\n";
+        write(pipe_out, s.c_str(), s.length());
+    }
+}
 void setMockFriction(float b) {
     if (pipe_out != -1) {
         std::string s = "CMD_FRIC_" + std::to_string(b) + "\n";
