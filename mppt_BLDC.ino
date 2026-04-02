@@ -44,7 +44,7 @@ volatile float motor_current = 0; // motor current in mA
 volatile float motor_power = 0; // motor power in mW
 
 // Define commutation table for BLDC motor phases (each row corresponds to a commutation step)
-const int commutation_table[COMMUTATION_STEPS][6] = {
+int commutation_table[COMMUTATION_STEPS][6] = {
   {PWM_MAX, LOW, HIGH, LOW, LOW, HIGH}, // step 0: phase A positive, phase C negative, phase B floating
   {PWM_MAX, LOW, HIGH, HIGH, LOW, LOW}, // step 1: phase A positive, phase B negative, phase C floating
   {PWM_MAX, HIGH, LOW, HIGH, LOW, LOW}, // step 2: phase C positive, phase B negative, phase A floating
@@ -182,13 +182,16 @@ void measureInductance() {
       
       pulse_width_sum += pulse_width; // add the pulse width to the sum
       current_sum += current; // add the current to the sum
+      sample_count++;
       // wait for half of the commutation delay
     }
   }
   
+  if (sample_count == 0) sample_count = 1;
   float pulse_width_avg = pulse_width_sum / sample_count; // calculate the average pulse width
   float current_avg = current_sum / sample_count; // calculate the average current
   
+  if (current_avg == 0) current_avg = 1;
   motor_inductance = pulse_width_avg / (current_avg * COMMUTATION_STEPS); // calculate the motor inductance in mH
   
 }
@@ -224,6 +227,7 @@ void findMaxPowerPoint() {
     float pulse_width = analogRead(PHASE_A) * (5.0 / PWM_MAX) / PWM_FREQ; // read the pulse width from phase A and convert to seconds
     
     power_curr = pulse_width * motor_current; // calculate the current power value
+    motor_power = power_curr;
     
     power_diff = abs(power_curr - power_prev); // calculate the power difference
     
@@ -261,13 +265,14 @@ void setup() {
   initPWM(); // initialize the PWM frequency and resolution for the motor phases
   
   measureInductance(); // measure the motor inductance during the setup phase
-  
+  Serial.println("Setup complete");
 }
 
 // Function to run in loop phase
 void loop() {
   
   findMaxPowerPoint(); // find the maximum power point during each commutation step
+  Serial.print("Power: "); Serial.println(motor_power);
   
   commutation_step = (commutation_step + encoder_dir + COMMUTATION_STEPS) % COMMUTATION_STEPS; // increment or decrement the commutation step based on the encoder direction
   

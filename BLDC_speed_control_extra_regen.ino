@@ -34,6 +34,8 @@ int dutyCycle; // Current PWM duty cycle (0-255)
 int current; // Current motor current (0-1023)
 int speed; // Desired motor speed (0-1023)
 int mode; // Current motor mode (0: stop, 1: forward, -1: reverse)
+float impedance;
+float boostRatio;
 
 // Define lookup table for commutation sequence
 // Each row corresponds to a hall sensor state (0-5)
@@ -95,7 +97,6 @@ void setup() {
    float deltaCurrent = 0; // Change in current reading
    float transitionFrequency = 0; // Transition frequency in hertz
    float inductiveReactance = 0; // Inductive reactance in ohms
-   float impedance = 0; // Impedance in ohms
    float coilResistance = 10; // Coil resistance in ohms (assumed value)
    
    while (pulseWidth < MAX_DUTY) {
@@ -112,6 +113,7 @@ void setup() {
    }
 
    // Calculate inductive reactance and impedance from transition frequency and coil resistance
+   float coilInductance = 0.001;
    inductiveReactance = 2 * PI * transitionFrequency * coilInductance;
    impedance = sqrt(coilResistance * coilResistance + inductiveReactance * inductiveReactance);
 

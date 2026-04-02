@@ -30,8 +30,8 @@
 #define NUM_SAMPLES 10
 
 // Define the motor parameters (Ohm and Henry)
-#define R_MOTOR 0.1
-#define L_MOTOR 0.001
+float R_MOTOR = 0.1;
+float L_MOTOR = 0.001;
 
 // Define the ADC reference voltage (V)
 #define V_REF 5.0
