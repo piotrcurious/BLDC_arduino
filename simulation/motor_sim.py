@@ -1,139 +1,117 @@
 import os
 import time
 import math
-import select
 import sys
 
-# Motor model
+# Physically-accurate 3-Phase Star-Connected BLDC Motor model
 class BLDCMotor:
-    def __init__(self, R=0.1, L=0.001, Ke=0.01, Kt=0.01, J=0.0001, b=0.00001, v_supply=12.0):
-        self.R = R  # Resistance (Ohms)
-        self.L = L  # Inductance (Henries)
-        self.Ke = Ke  # Back-EMF constant (V/(rad/s))
-        self.Kt = Kt  # Torque constant (Nm/A)
-        self.J = J  # Rotor inertia (kg*m^2)
-        self.b = b  # Viscous friction coefficient (Nms)
+    def __init__(self, R=0.1, L=0.001, Ke=0.01, Kt=0.01, J=0.0001, b=0.00001, v_supply=12.0, pole_pairs=4):
+        self.R = R
+        self.L = L
+        self.Ke = Ke
+        self.Kt = Kt
+        self.J = J
+        self.b = b
         self.v_supply = v_supply
+        self.pole_pairs = pole_pairs
 
-        self.theta = 0.0  # Rotor position (radians)
-        self.omega = 0.0  # Rotor angular velocity (rad/s)
-        self.current = 0.0  # Phase current (Amps)
+        self.theta = 0.0  # mechanical
+        self.omega = 0.0
+        self.currents = [0.0, 0.0, 0.0]  # phase currents
 
-    def update(self, v_applied, dt, load_torque=0.0, friction_coeff=None):
-        if friction_coeff is not None:
-            self.b = friction_coeff
+    def get_back_emf_factor(self, theta_e):
+        # Trapezoidal Back-EMF factor (-1 to 1)
+        angle = (theta_e % (2 * math.pi))
+        if angle < math.pi / 6: return angle / (math.pi/6)
+        if angle < 5 * math.pi / 6: return 1.0
+        if angle < math.pi: return 1.0 - (angle - 5*math.pi/6) / (math.pi/6)
+        if angle < 7 * math.pi / 6: return -(angle - math.pi) / (math.pi/6)
+        if angle < 11 * math.pi / 6: return -1.0
+        return -1.0 + (angle - 11*math.pi/6) / (math.pi/6)
 
-        # Electrical equation: V = I*R + L*di/dt + Ke*omega
-        di_dt = (v_applied - self.current * self.R - self.Ke * self.omega) / self.L
-        self.current += di_dt * dt
+    def update(self, v_phases, dt, load_torque=0.0, friction_coeff=None):
+        if friction_coeff is not None: self.b = friction_coeff
 
-        # Mechanical equation: T_motor = Kt*I
-        # J*domega/dt = T_motor - b*omega - T_load
-        torque_motor = self.Kt * self.current
-        domega_dt = (torque_motor - self.b * self.omega - load_torque) / self.J
-        self.omega += domega_dt * dt
-        self.theta += self.omega * dt
+        # Star-connection dynamics: ia + ib + ic = 0
+        # Neutral point voltage Vn = (Va + Vb + Vc - Ea - Eb - Ec) / 3
+        # dIi/dt = (Vi - Vn - Ii*R - Ei) / L
+
+        num_steps = 100
+        step_dt = dt / num_steps
+
+        for _ in range(num_steps):
+            theta_e = self.theta * self.pole_pairs
+            e = [self.Ke * self.omega * self.get_back_emf_factor(theta_e),
+                 self.Ke * self.omega * self.get_back_emf_factor(theta_e - 2*math.pi/3),
+                 self.Ke * self.omega * self.get_back_emf_factor(theta_e - 4*math.pi/3)]
+
+            # Simplified star neutral (ignoring R for Vn calc for simplicity)
+            vn = (sum(v_phases) - sum(e)) / 3.0
+
+            torque_motor = 0
+            for i in range(3):
+                di = (v_phases[i] - vn - self.currents[i] * self.R - e[i]) / self.L * step_dt
+                self.currents[i] += di
+                torque_motor += self.Kt * self.currents[i] * self.get_back_emf_factor(theta_e - i * 2*math.pi/3)
+
+            # Correct any drift in sum of currents
+            total_i = sum(self.currents)
+            for i in range(3): self.currents[i] -= total_i / 3.0
+
+            domega_dt = (torque_motor - self.b * self.omega - load_torque) / self.J
+            self.omega += domega_dt * step_dt
+            self.theta += self.omega * step_dt
 
     def get_hall_state(self):
-        angle_deg = (self.theta * (180.0 / math.pi)) % 360.0
-        if 0 <= angle_deg < 60:    return (1, 0, 1)
-        if 60 <= angle_deg < 120:   return (1, 0, 0)
-        if 120 <= angle_deg < 180:  return (1, 1, 0)
-        if 180 <= angle_deg < 240:  return (0, 1, 0)
-        if 240 <= angle_deg < 300:  return (0, 1, 1)
-        if 300 <= angle_deg < 360:  return (0, 0, 1)
-        return (0, 0, 0)
+        theta_e = (self.theta * self.pole_pairs) % (2 * math.pi)
+        # 120-deg halls: each covers 180-deg electrical
+        hA = 1 if (0 <= theta_e < math.pi) else 0
+        hB = 1 if (2*math.pi/3 <= theta_e < 5*math.pi/3) else 0
+        hC = 1 if (4*math.pi/3 <= theta_e < 2*math.pi or 0 <= theta_e < math.pi/3) else 0
+        return (hA, hB, hC)
 
 def main():
-    pipe_in_path = "/tmp/arduino_in"
-    pipe_out_path = "/tmp/arduino_out"
-
+    pipe_in_path, pipe_out_path = "/tmp/arduino_in", "/tmp/arduino_out"
     if os.path.exists(pipe_in_path): os.remove(pipe_in_path)
     if os.path.exists(pipe_out_path): os.remove(pipe_out_path)
-
     os.mkfifo(pipe_in_path)
     os.mkfifo(pipe_out_path)
 
-    print("Motor Simulator started. Waiting for Arduino...")
-    pipe_in = open(pipe_in_path, "r")
-    pipe_out = open(pipe_out_path, "w")
-    print("Arduino connected.")
-
+    pipe_in, pipe_out = open(pipe_in_path, "r"), open(pipe_out_path, "w")
     motor = BLDCMotor()
-    last_time = time.time()
-
-    pins_out = {}
-    load_torque = 0.0
-    friction_coeff = 0.00001
+    dt = 0.001
+    pins_out, load_torque, friction_coeff = {}, 0.0, 0.00001
 
     while True:
         line = pipe_in.readline()
-        if not line:
-            break
-
+        if not line: break
         line = line.strip()
         if line.startswith("P"):
             try:
-                p_idx = line.find('P')
-                d_idx = line.find('D')
-                a_idx = line.find('A')
-                pin = int(line[p_idx+1:d_idx])
-                d = int(line[d_idx+1:a_idx])
-                a = int(line[a_idx+1:])
-                pins_out[pin] = (d, a)
-            except Exception:
-                pass
+                p = int(line[1:line.find('D')])
+                d = int(line[line.find('D')+1:line.find('A')])
+                a = int(line[line.find('A')+1:])
+                pins_out[p] = (d, a)
+            except: pass
         elif line.startswith("CMD"):
-            # Format: CMD_LOAD_val, CMD_FRIC_val
-            try:
-                if "LOAD_" in line:
-                    load_torque = float(line.split("LOAD_")[1])
-                if "FRIC_" in line:
-                    friction_coeff = float(line.split("FRIC_")[1])
-            except Exception:
-                pass
+            if "LOAD_" in line: load_torque = float(line.split("LOAD_")[1])
+            if "FRIC_" in line: friction_coeff = float(line.split("FRIC_")[1])
         elif line == "SYNC":
-            now = time.time()
-            dt = now - last_time
-            if dt <= 0 or dt > 0.1: dt = 0.001
-            last_time = now
+            pwm = pins_out.get(9, (0, 0))[1] / 255.0
+            v_phases = [0.0, 0.0, 0.0]
+            for i, (hp, lp) in enumerate([(5,6), (7,8), (10,11)]):
+                if pins_out.get(hp, (0,0))[0] == 1: v_phases[i] = pwm * motor.v_supply
+                elif pins_out.get(lp, (0,0))[0] == 1: v_phases[i] = 0.0
+                else: v_phases[i] = motor.Ke * motor.omega * motor.get_back_emf_factor(motor.theta * motor.pole_pairs - i * 2*math.pi/3)
 
-            pwm = pins_out.get(9, (0, 0))[1]
-            any_en = any(pins_out.get(p, (0,0))[0] == 1 for p in [5,6,7,8,10,11])
-            v_applied = (pwm / 255.0) * motor.v_supply if any_en or 9 in pins_out else 0.0
-
-            # Simple regenerative braking model: if PWM is 0 and any EN is HIGH,
-            # we might have a short circuit (braking) depending on the bridge state.
-            # In speed_control_extra_regen, extra regen turns on ALL HIGH side FETs.
-            # If all AH, BH, CH are HIGH and AL, BL, CL are LOW, it's a short circuit.
-            all_high_on = all(pins_out.get(p, (0,0))[0] == 1 for p in [5,7,10])
-            all_low_off = all(pins_out.get(p, (0,0))[0] == 0 for p in [6,8,11])
-            if all_high_on and all_low_off:
-                # Short circuit braking
-                v_applied = 0.0
-                # current will be generated by Back-EMF: I = (V_back - 0) / R
-                # but we'll let the physics update handle it if we set v_applied = 0.
-
-            motor.update(v_applied, dt, load_torque, friction_coeff)
+            motor.update(v_phases, dt, load_torque, friction_coeff)
             hall = motor.get_hall_state()
-
-            curr_adc = int(abs(motor.current) * 10)
-            spd_target = pins_out.get(15, (0, 600))[1] # Keep last speed target or default
+            curr_adc = int(sum(abs(i) for i in motor.currents) * 20)
             omega_adc = int(abs(motor.omega) * 10)
-
-            out_str = f"I2D{hall[0]}A0\n"
-            out_str += f"I3D{hall[1]}A0\n"
-            out_str += f"I4D{hall[2]}A0\n"
-            out_str += f"I8D{hall[0]}A0\n"
-            out_str += f"I12D{hall[1]}A0\n"
-            out_str += f"I13D{hall[2]}A0\n"
-            out_str += f"I14D0A{curr_adc}\n"
-            out_str += f"I15D0A{spd_target}\n"
-            out_str += f"I9D0A{omega_adc}\n"
-            out_str += "ACK\n"
-
-            pipe_out.write(out_str)
-            pipe_out.flush()
+            out = f"I2D{hall[0]}A0\nI3D{hall[1]}A0\nI4D{hall[2]}A0\n"
+            out += f"I8D{hall[0]}A0\nI12D{hall[1]}A0\nI13D{hall[2]}A0\n"
+            out += f"I14D0A{curr_adc}\nI15D0A600\nI9D0A{omega_adc}\nACK\n"
+            pipe_out.write(out); pipe_out.flush()
 
 if __name__ == "__main__":
     main()

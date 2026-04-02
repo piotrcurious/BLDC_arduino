@@ -135,11 +135,15 @@ while (pwmValue < MAX_PWM) {
     measureCurrent();
 
     // Calculate the motor impedance by Ohm's law
-    zMotor = V_REF * pwmValue / 255.0 / iMotor;
+    if (iMotor > 0.001) {
+        zMotor = V_REF * pwmValue / 255.0 / iMotor;
+    } else {
+        zMotor = 1e6; // Large impedance if no current
+    }
 
-    // Check if the motor impedance is equal to the motor resistance
+    // Check if the motor impedance is close to the motor resistance
     // This means that the PWM frequency is equal to the low-pass transition frequency of the motor
-    if (zMotor == R_MOTOR) {
+    if (abs(zMotor - R_MOTOR) < 0.01) {
       
       // Calculate the motor frequency by the PWM frequency and duty cycle
       fMotor = PWM_FREQ * pwmValue / 255.0;

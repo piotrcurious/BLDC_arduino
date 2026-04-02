@@ -10,7 +10,7 @@ void run_scenario(const char* name, int iterations, int spd_target, float load, 
         loop();
         sync_sim();
         if (i % (iterations/5) == 0) {
-           std::cout << "  - Progress " << (i*100/iterations) << "%" << std::endl;
+           std::cout << "  - Progress " << (i*100/iterations) << "% (I:" << analogRead(CUR_SENSE) << " W:" << analogRead(9) << ")" << std::endl;
         }
     }
 }

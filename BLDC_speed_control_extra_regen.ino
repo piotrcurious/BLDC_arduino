@@ -144,7 +144,7 @@ void loop() {
     
    // dutyCycle = map(speed,MIN_SPD,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
  
-   if(mode=1){
+   if(mode == 1){
       dutyCycle = map(speed,MIN_SPD+BRAKE_THR,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
     } else {
       dutyCycle = map(speed,MIN_SPD+BRAKE_BOOST,MAX_SPD-BRAKE_THR,MAX_DUTY,MIN_DUTY); // Map braking to duty cycle
@@ -152,9 +152,11 @@ void loop() {
     if (dutyCycle > MAX_DUTY - impedance) { // If duty cycle exceeds maximum allowed value based on impedance
       dutyCycle = MAX_DUTY - impedance; // Limit duty cycle to maximum allowed value
     }
+    if (dutyCycle < MIN_DUTY) dutyCycle = MIN_DUTY;
+    
+    if (hallState < 0 || hallState > 5) return;
     
     analogWrite(PWM,0); // Set PWM duty cycle to 0 to avoid short circuit
-    
     
     if (mode == -1 && speed < BRAKE_BOOST) { // If mode is reverse and speed is below boost threshold
       

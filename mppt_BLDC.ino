@@ -218,7 +218,9 @@ void findMaxPowerPoint() {
       motor_current = -MAX_POWER_POINT_CURRENT; // limit it to the minimum value
     }
     
-    commutation_table[commutation_step][0] = motor_current * (PWM_MAX / MAX_POWER_POINT_CURRENT); // update the commutation table for phase A based on the motor current
+    if (commutation_step >= 0 && commutation_step < COMMUTATION_STEPS) {
+        commutation_table[commutation_step][0] = abs(motor_current) * (PWM_MAX / MAX_POWER_POINT_CURRENT); // update the commutation table for current phase
+    }
     
     setPhasePWM(); // set the PWM duty cycle and enable pins for the phases
     

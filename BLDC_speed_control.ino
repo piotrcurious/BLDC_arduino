@@ -17,6 +17,9 @@
 #define CUR_SENSE A0
 #define SPD_CTRL A1
 
+// RC filter compensation constant
+#define CAPACITOR 0.0000001 // 100nF
+
 // Define constants for motor parameters
 #define MAX_DUTY 255 // Maximum PWM duty cycle
 #define MIN_DUTY 0 // Minimum PWM duty cycle
@@ -115,8 +118,17 @@ void setup() {
 
    // Calculate inductive reactance and impedance from transition frequency and coil resistance
    float coilInductance = 0.001; // Assume 1mH if not defined
-   inductiveReactance = 2 * PI * transitionFrequency * coilInductance;
+   float angularFrequency = 2 * PI * transitionFrequency;
+   inductiveReactance = angularFrequency * coilInductance;
+
+   // Compensate for RC circuit if CAPACITOR is defined
+   float rcImpedance = sqrt(coilResistance * coilResistance + (1.0 / (angularFrequency * CAPACITOR)) * (1.0 / (angularFrequency * CAPACITOR)));
    impedance = sqrt(coilResistance * coilResistance + inductiveReactance * inductiveReactance);
+
+   // If the RC impedance is significant, we should consider it in the current limit
+   if (rcImpedance < 1e6) {
+       impedance = (impedance * rcImpedance) / (impedance + rcImpedance); // Parallel combination
+   }
 
    // Print motor parameters to serial monitor for debugging purposes
    Serial.begin(9600); // Start serial communication at 9600 baud rate
@@ -143,7 +155,7 @@ void loop() {
     
     mode = determineMode(); // Determine current mode based on speed
     
-    if(mode=1){
+    if(mode == 1){
       dutyCycle = map(speed,MIN_SPD+BRAKE_THR,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
     } else {
       dutyCycle = map(speed,MIN_SPD,MAX_SPD-BRAKE_THR,MAX_DUTY,MIN_DUTY); // Map braking to duty cycle
@@ -151,6 +163,9 @@ void loop() {
     if (dutyCycle > MAX_DUTY - impedance) { // If duty cycle exceeds maximum allowed value based on impedance
       dutyCycle = MAX_DUTY - impedance; // Limit duty cycle to maximum allowed value
     }
+    if (dutyCycle < MIN_DUTY) dutyCycle = MIN_DUTY;
+
+    if (hallState < 0 || hallState > 5) return;
     
     analogWrite(PWM,0); // Set PWM duty cycle to 0
     // to prevent short circuit during change of enable pins
