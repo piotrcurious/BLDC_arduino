@@ -44,7 +44,7 @@ volatile float motor_current = 0; // motor current in mA
 volatile float motor_power = 0; // motor power in mW
 
 // Define commutation table for BLDC motor phases (each row corresponds to a commutation step)
-const int commutation_table[COMMUTATION_STEPS][6] = {
+int commutation_table[COMMUTATION_STEPS][6] = {
   {PWM_MAX, LOW, HIGH, LOW, LOW, HIGH}, // step 0: phase A positive, phase C negative, phase B floating
   {PWM_MAX, LOW, HIGH, HIGH, LOW, LOW}, // step 1: phase A positive, phase B negative, phase C floating
   {PWM_MAX, HIGH, LOW, HIGH, LOW, LOW}, // step 2: phase C positive, phase B negative, phase A floating
@@ -176,19 +176,22 @@ void measureInductance() {
       
       delayMicroseconds(COMMUTATION_DELAY / 2); // wait for half of the commutation delay
       
-      float pulse_width = analogRead(PHASE_A) * (5.0 / PWM_MAX) / PWM_FREQ; // read the pulse width from phase A and convert to seconds
+      float pulse_width = (float)commutation_table[commutation_step][0] / (float)PWM_MAX / (float)PWM_FREQ; // calculate the pulse width from duty cycle
       
-      float current = analogRead(CURRENT_SENSE) * (5.0 / PWM_MAX) * (1000.0 / INDUCTANCE_MEASURE_CURRENT); // read the current from the current sense and convert to mA
+      float current = (float)analogRead(CURRENT_SENSE) * (5.0 / 1024.0) / (0.1) * 1000.0; // read the current from the current sense (A -> mA)
       
       pulse_width_sum += pulse_width; // add the pulse width to the sum
       current_sum += current; // add the current to the sum
+      sample_count++;
       // wait for half of the commutation delay
     }
   }
   
+  if (sample_count == 0) sample_count = 1;
   float pulse_width_avg = pulse_width_sum / sample_count; // calculate the average pulse width
   float current_avg = current_sum / sample_count; // calculate the average current
   
+  if (current_avg == 0) current_avg = 1;
   motor_inductance = pulse_width_avg / (current_avg * COMMUTATION_STEPS); // calculate the motor inductance in mH
   
 }
@@ -215,15 +218,19 @@ void findMaxPowerPoint() {
       motor_current = -MAX_POWER_POINT_CURRENT; // limit it to the minimum value
     }
     
-    commutation_table[commutation_step][0] = motor_current * (PWM_MAX / MAX_POWER_POINT_CURRENT); // update the commutation table for phase A based on the motor current
+    if (commutation_step >= 0 && commutation_step < COMMUTATION_STEPS) {
+        commutation_table[commutation_step][0] = abs(motor_current) * (PWM_MAX / MAX_POWER_POINT_CURRENT); // update the commutation table for current phase
+    }
     
     setPhasePWM(); // set the PWM duty cycle and enable pins for the phases
     
     delayMicroseconds(COMMUTATION_DELAY / 2); // wait for half of the commutation delay
     
-    float pulse_width = analogRead(PHASE_A) * (5.0 / PWM_MAX) / PWM_FREQ; // read the pulse width from phase A and convert to seconds
+    float pulse_width = (float)commutation_table[commutation_step][0] / (float)PWM_MAX / (float)PWM_FREQ; // calculate the pulse width from duty cycle
+    float voltage_avg = (float)commutation_table[commutation_step][0] * (12.0 / PWM_MAX); // 12V supply
     
-    power_curr = pulse_width * motor_current; // calculate the current power value
+    power_curr = voltage_avg * motor_current / 1000.0; // calculate the current power value in Watts
+    motor_power = power_curr;
     
     power_diff = abs(power_curr - power_prev); // calculate the power difference
     
@@ -261,18 +268,41 @@ void setup() {
   initPWM(); // initialize the PWM frequency and resolution for the motor phases
   
   measureInductance(); // measure the motor inductance during the setup phase
-  
+  Serial.println("Setup complete");
+}
+
+// Non-blocking MPPT step
+float power_prev = 0;
+void mppt_step() {
+    float voltage_avg = (float)commutation_table[commutation_step][0] * (12.0 / PWM_MAX);
+    float motor_current_measured = (float)analogRead(CURRENT_SENSE) * (5.0 / 1024.0) / (0.1) * 1000.0;
+    float power_curr = voltage_avg * motor_current_measured / 1000.0;
+    motor_power = power_curr;
+
+    if (abs(power_curr - power_prev) > MAX_POWER_POINT_TOLERANCE * power_curr) {
+        motor_current += MAX_POWER_POINT_STEP * encoder_dir;
+        if (motor_current > MAX_POWER_POINT_CURRENT) motor_current = MAX_POWER_POINT_CURRENT;
+        if (motor_current < -MAX_POWER_POINT_CURRENT) motor_current = -MAX_POWER_POINT_CURRENT;
+
+        if (commutation_step >= 0 && commutation_step < COMMUTATION_STEPS) {
+            commutation_table[commutation_step][0] = abs(motor_current) * (PWM_MAX / MAX_POWER_POINT_CURRENT);
+        }
+    }
+    power_prev = power_curr;
 }
 
 // Function to run in loop phase
 void loop() {
+  mppt_step();
   
-  findMaxPowerPoint(); // find the maximum power point during each commutation step
+  commutation_step = (commutation_step + encoder_dir + COMMUTATION_STEPS) % COMMUTATION_STEPS;
+  setPhasePWM();
   
-  commutation_step = (commutation_step + encoder_dir + COMMUTATION_STEPS) % COMMUTATION_STEPS; // increment or decrement the commutation step based on the encoder direction
-  
-  setPhasePWM(); // set the PWM duty cycle and enable pins for the phases
-  
-  delayMicroseconds(COMMUTATION_DELAY); // wait for the commutation delay
-  
+  // Overcurrent protection (simple software limit)
+  float current_ma = (float)analogRead(CURRENT_SENSE) * (5.0 / 1024.0) / (0.1) * 1000.0;
+  if (current_ma > MAX_POWER_POINT_CURRENT * 1.5) {
+      analogWrite(PHASE_A, 0); analogWrite(PHASE_B, 0); analogWrite(PHASE_C, 0);
+  }
+
+  delayMicroseconds(COMMUTATION_DELAY);
 }

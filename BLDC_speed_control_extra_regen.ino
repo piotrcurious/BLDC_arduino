@@ -34,6 +34,8 @@ int dutyCycle; // Current PWM duty cycle (0-255)
 int current; // Current motor current (0-1023)
 int speed; // Desired motor speed (0-1023)
 int mode; // Current motor mode (0: stop, 1: forward, -1: reverse)
+float impedance;
+float boostRatio;
 
 // Define lookup table for commutation sequence
 // Each row corresponds to a hall sensor state (0-5)
@@ -95,7 +97,6 @@ void setup() {
    float deltaCurrent = 0; // Change in current reading
    float transitionFrequency = 0; // Transition frequency in hertz
    float inductiveReactance = 0; // Inductive reactance in ohms
-   float impedance = 0; // Impedance in ohms
    float coilResistance = 10; // Coil resistance in ohms (assumed value)
    
    while (pulseWidth < MAX_DUTY) {
@@ -112,6 +113,7 @@ void setup() {
    }
 
    // Calculate inductive reactance and impedance from transition frequency and coil resistance
+   float coilInductance = 0.001;
    inductiveReactance = 2 * PI * transitionFrequency * coilInductance;
    impedance = sqrt(coilResistance * coilResistance + inductiveReactance * inductiveReactance);
 
@@ -142,7 +144,7 @@ void loop() {
     
    // dutyCycle = map(speed,MIN_SPD,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
  
-   if(mode=1){
+   if(mode == 1){
       dutyCycle = map(speed,MIN_SPD+BRAKE_THR,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
     } else {
       dutyCycle = map(speed,MIN_SPD+BRAKE_BOOST,MAX_SPD-BRAKE_THR,MAX_DUTY,MIN_DUTY); // Map braking to duty cycle
@@ -150,25 +152,29 @@ void loop() {
     if (dutyCycle > MAX_DUTY - impedance) { // If duty cycle exceeds maximum allowed value based on impedance
       dutyCycle = MAX_DUTY - impedance; // Limit duty cycle to maximum allowed value
     }
+    if (dutyCycle < MIN_DUTY) dutyCycle = MIN_DUTY;
+    
+    // Software overcurrent protection
+    current = analogRead(CUR_SENSE);
+    if (current > 800) { // Approx 4A
+        dutyCycle = (int)(dutyCycle * 0.8);
+    }
+
+    if (hallState < 0 || hallState > 5) return;
     
     analogWrite(PWM,0); // Set PWM duty cycle to 0 to avoid short circuit
     
-    
     if (mode == -1 && speed < BRAKE_BOOST) { // If mode is reverse and speed is below boost threshold
       
-      boostRatio = map(speed,MIN_SPD,BRAKE_BOOST,1,0); // Map speed to boost ratio
+      boostRatio = (float)map(speed,MIN_SPD,BRAKE_BOOST,255,0) / 255.0; // Map speed to boost ratio
       
-      // Set enable signals according to boost converter mode
-      digitalWrite(EN_AH,HIGH); // Turn off phase A high side MOSFET driver
-      digitalWrite(EN_AL,LOW); // Turn on phase A low side MOSFET driver
-      digitalWrite(EN_BH,HIGH); // Turn off phase B high side MOSFET driver
-      digitalWrite(EN_BL,LOW); // Turn on phase B low side MOSFET driver
-      digitalWrite(EN_CH,HIGH); // Turn off phase C high side MOSFET driver
-      digitalWrite(EN_CL,LOW); // Turn on phase C low side MOSFET driver
+      // Boost converter mode: Pulse ALL low-side FETs to build current in inductors, then release to flow into DC bus via high-side diodes
+      // Actually, simple way is all high-side ON and PWM the PWM pin which drives the bridge logic
+      digitalWrite(EN_AH,HIGH); digitalWrite(EN_AL,LOW);
+      digitalWrite(EN_BH,HIGH); digitalWrite(EN_BL,LOW);
+      digitalWrite(EN_CH,HIGH); digitalWrite(EN_CL,LOW);
       
-      // Set PWM signal according to boost ratio
-      analogWrite(PWM,(int)(boostRatio * MAX_DUTY)); // Set PWM duty cycle proportional to boost ratio
-      
+      analogWrite(PWM,(int)(boostRatio * MAX_DUTY));
     }
     else { // If mode is not reverse or speed is not below boost threshold
       
