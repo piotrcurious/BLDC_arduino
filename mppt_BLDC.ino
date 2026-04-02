@@ -176,9 +176,9 @@ void measureInductance() {
       
       delayMicroseconds(COMMUTATION_DELAY / 2); // wait for half of the commutation delay
       
-      float pulse_width = analogRead(PHASE_A) * (5.0 / PWM_MAX) / PWM_FREQ; // read the pulse width from phase A and convert to seconds
+      float pulse_width = (float)commutation_table[commutation_step][0] / (float)PWM_MAX / (float)PWM_FREQ; // calculate the pulse width from duty cycle
       
-      float current = analogRead(CURRENT_SENSE) * (5.0 / PWM_MAX) * (1000.0 / INDUCTANCE_MEASURE_CURRENT); // read the current from the current sense and convert to mA
+      float current = (float)analogRead(CURRENT_SENSE) * (5.0 / 1024.0) / (0.1) * 1000.0; // read the current from the current sense (A -> mA)
       
       pulse_width_sum += pulse_width; // add the pulse width to the sum
       current_sum += current; // add the current to the sum
@@ -226,9 +226,10 @@ void findMaxPowerPoint() {
     
     delayMicroseconds(COMMUTATION_DELAY / 2); // wait for half of the commutation delay
     
-    float pulse_width = analogRead(PHASE_A) * (5.0 / PWM_MAX) / PWM_FREQ; // read the pulse width from phase A and convert to seconds
+    float pulse_width = (float)commutation_table[commutation_step][0] / (float)PWM_MAX / (float)PWM_FREQ; // calculate the pulse width from duty cycle
+    float voltage_avg = (float)commutation_table[commutation_step][0] * (12.0 / PWM_MAX); // 12V supply
     
-    power_curr = pulse_width * motor_current; // calculate the current power value
+    power_curr = voltage_avg * motor_current / 1000.0; // calculate the current power value in Watts
     motor_power = power_curr;
     
     power_diff = abs(power_curr - power_prev); // calculate the power difference

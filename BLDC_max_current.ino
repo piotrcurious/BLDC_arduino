@@ -56,7 +56,7 @@ byte hallState; // current hall state
 byte pwmValue; // current PWM duty cycle
 float iMotor; // current motor current (A)
 float zMotor; // current motor impedance (Ohm)
-float fMotor; // current motor frequency (Hz)
+float transitionFrequency; // current motor frequency (Hz)
 
 void setup() {
   
@@ -107,7 +107,7 @@ pwmValue =
 0;
 
 // Initialize the motor frequency to zero
-fMotor = 
+transitionFrequency =
 0;
 
 // Measure the motor impedance at startup by increasing the PWM duty cycle and measuring the current
@@ -145,11 +145,14 @@ while (pwmValue < MAX_PWM) {
     // This means that the PWM frequency is equal to the low-pass transition frequency of the motor
     if (abs(zMotor - R_MOTOR) < 0.01) {
       
-      // Calculate the motor frequency by the PWM frequency and duty cycle
-      fMotor = PWM_FREQ * pwmValue / 255.0;
+      // Calculate the transition frequency f = R / (2*PI*L)
+      // This logic attempts to find the point where reactance dominates
+      transitionFrequency = (float)PWM_FREQ * (float)pwmValue / 255.0;
 
       // Calculate the motor inductance by the impedance and frequency
-      L_MOTOR = zMotor / (2 * PI * fMotor);
+      // z = sqrt(R^2 + (2*pi*f*L)^2)
+      // If z = sqrt(2)*R then f = R / (2*pi*L)
+      L_MOTOR = R_MOTOR / (2.0 * PI * transitionFrequency);
 
       // Break the loop
       break;
@@ -176,8 +179,8 @@ while (pwmValue < MAX_PWM) {
   Serial.print("L_MOTOR = ");
   Serial.print(L_MOTOR);
   Serial.println(" H");
-  Serial.print("fMotor = ");
-  Serial.print(fMotor);
+  Serial.print("transitionFrequency = ");
+  Serial.print(transitionFrequency);
   Serial.println(" Hz");
 
 }
