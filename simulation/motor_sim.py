@@ -2,12 +2,13 @@ import os
 import time
 import math
 import csv
+import random
 
 OUTPUT = 1
 INPUT = 0
 
 class BLDCMotor:
-    def __init__(self, R=0.5, L=0.005, Ke=0.05, Kt=0.05, J=0.0005, b=0.0001, v_supply=12.0, pole_pairs=4):
+    def __init__(self, R=0.5, L=0.01, Ke=0.05, Kt=0.05, J=0.01, b=0.001, v_supply=12.0, pole_pairs=4):
         self.R, self.L, self.Ke, self.Kt = R, L, Ke, Kt
         self.J, self.b, self.v_supply, self.pole_pairs = J, b, v_supply, pole_pairs
         self.theta, self.omega = 0.0, 0.0
@@ -24,7 +25,7 @@ class BLDCMotor:
 
     def update(self, v_phases, dt, load_torque=0.0, friction_coeff=None):
         if friction_coeff is not None: self.b = friction_coeff
-        num_steps = 10
+        num_steps = 100
         step_dt = dt / num_steps
         for _ in range(num_steps):
             theta_e = self.theta * self.pole_pairs
@@ -58,7 +59,8 @@ def main():
     pipe_in, pipe_out = open(pipe_in_path, "r"), open(pipe_out_path, "w")
     motor = BLDCMotor()
     dt = 0.001
-    pins_out, load_torque, friction_coeff, v_bus = {}, 0.0, 0.0001, 12.0
+    pins_out, load_torque, friction_coeff, v_bus = {}, 0.0, 0.001, 12.0
+    noise_level = 0.0
 
     with open('simulation/telemetry.csv', 'w', newline='') as csvfile:
         tele_writer = csv.writer(csvfile)
@@ -81,6 +83,9 @@ def main():
                 if "LOAD_" in line: load_torque = float(line.split("LOAD_")[1])
                 if "FRIC_" in line: friction_coeff = float(line.split("FRIC_")[1])
                 if "BUS_" in line: v_bus = float(line.split("BUS_")[1])
+                if "NOISE_" in line: noise_level = float(line.split("NOISE_")[1])
+                if "PARAM_L_" in line: motor.L = float(line.split("PARAM_L_")[1])
+                if "PARAM_R_" in line: motor.R = float(line.split("PARAM_R_")[1])
             elif line == "SYNC":
                 pwm = pins_out.get(9, (0, 0))[1] / 255.0
                 phase_map = [(5,6), (7,8), (10,11)]
@@ -90,13 +95,23 @@ def main():
                     elif pins_out.get(lp, (0,0))[0] == 1: v_phases[i] = 0.0
                     else: v_phases[i] = motor.Ke * motor.omega * motor.get_back_emf_factor(motor.theta * motor.pole_pairs - i * 2*math.pi/3)
                 motor.update(v_phases, dt, load_torque, friction_coeff)
-                hall = motor.get_hall_state()
-                total_current = sum(abs(i) for i in motor.currents)
+                hall = list(motor.get_hall_state())
+
+                # Noise injection
+                if noise_level > 0:
+                    if random.random() < noise_level: hall[0] = 1 - hall[0]
+                    if random.random() < noise_level: hall[1] = 1 - hall[1]
+                    if random.random() < noise_level: hall[2] = 1 - hall[2]
+
+                total_current = sum(abs(i) for i in motor.currents) / 2.0
+                if noise_level > 0: total_current += random.gauss(0, noise_level * 10)
+
                 curr_adc = int(total_current * 20)
                 omega_adc = int(abs(motor.omega) * 10)
+
                 tele_writer.writerow([time.time() - start_time, motor.omega, total_current, load_torque, v_bus])
                 out = f"I2D{hall[0]}A0\nI3D{hall[1]}A0\nI4D{hall[2]}A0\nI8D{hall[0]}A0\nI12D{hall[1]}A0\nI13D{hall[2]}A0\n"
-                out += f"I14D0A{curr_adc}\nI15D0A{pins_out.get(15, (0, 600))[1]}\nI9D0A{omega_adc}\nACK\n"
+                out += f"I14D0A{curr_adc}\nI15D0A{pins_out.get(15, (0, 600))[1]}\nI18D0A{omega_adc}\nACK\n"
                 pipe_out.write(out); pipe_out.flush()
 
 if __name__ == "__main__":
