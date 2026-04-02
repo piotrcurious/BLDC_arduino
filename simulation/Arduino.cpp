@@ -63,11 +63,15 @@ void sync_sim() {
             std::string line = s.substr(pos, end - pos);
             int p, d, a;
             if (sscanf(line.c_str(), "I%dD%dA%d", &p, &d, &a) == 3) {
-                int old_d = pins[p].digital_val;
-                pins[p].digital_val = d;
-                pins[p].analog_val = a;
-                if (old_d != d && interrupts.count(p)) {
-                    interrupts[p]();
+                // Only update pins that are NOT being driven as OUTPUT by the sketch
+                // Exception: Always update sensors A0, Hall pins, and telemetry pins
+                if (pins[p].mode == INPUT || pins[p].mode == INPUT_PULLUP || p == A0 || (p >= 2 && p <= 4) || p == 8 || p == 9 || (p >= 12 && p <= 13)) {
+                    int old_d = pins[p].digital_val;
+                    pins[p].digital_val = d;
+                    pins[p].analog_val = a;
+                    if (old_d != d && interrupts.count(p)) {
+                        interrupts[p]();
+                    }
                 }
             }
             pos = end + 1;

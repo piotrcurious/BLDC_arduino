@@ -154,25 +154,27 @@ void loop() {
     }
     if (dutyCycle < MIN_DUTY) dutyCycle = MIN_DUTY;
     
+    // Software overcurrent protection
+    current = analogRead(CUR_SENSE);
+    if (current > 800) { // Approx 4A
+        dutyCycle = (int)(dutyCycle * 0.8);
+    }
+
     if (hallState < 0 || hallState > 5) return;
     
     analogWrite(PWM,0); // Set PWM duty cycle to 0 to avoid short circuit
     
     if (mode == -1 && speed < BRAKE_BOOST) { // If mode is reverse and speed is below boost threshold
       
-      boostRatio = map(speed,MIN_SPD,BRAKE_BOOST,1,0); // Map speed to boost ratio
+      boostRatio = (float)map(speed,MIN_SPD,BRAKE_BOOST,255,0) / 255.0; // Map speed to boost ratio
       
-      // Set enable signals according to boost converter mode
-      digitalWrite(EN_AH,HIGH); // Turn off phase A high side MOSFET driver
-      digitalWrite(EN_AL,LOW); // Turn on phase A low side MOSFET driver
-      digitalWrite(EN_BH,HIGH); // Turn off phase B high side MOSFET driver
-      digitalWrite(EN_BL,LOW); // Turn on phase B low side MOSFET driver
-      digitalWrite(EN_CH,HIGH); // Turn off phase C high side MOSFET driver
-      digitalWrite(EN_CL,LOW); // Turn on phase C low side MOSFET driver
+      // Boost converter mode: Pulse ALL low-side FETs to build current in inductors, then release to flow into DC bus via high-side diodes
+      // Actually, simple way is all high-side ON and PWM the PWM pin which drives the bridge logic
+      digitalWrite(EN_AH,HIGH); digitalWrite(EN_AL,LOW);
+      digitalWrite(EN_BH,HIGH); digitalWrite(EN_BL,LOW);
+      digitalWrite(EN_CH,HIGH); digitalWrite(EN_CL,LOW);
       
-      // Set PWM signal according to boost ratio
-      analogWrite(PWM,(int)(boostRatio * MAX_DUTY)); // Set PWM duty cycle proportional to boost ratio
-      
+      analogWrite(PWM,(int)(boostRatio * MAX_DUTY));
     }
     else { // If mode is not reverse or speed is not below boost threshold
       

@@ -271,16 +271,38 @@ void setup() {
   Serial.println("Setup complete");
 }
 
+// Non-blocking MPPT step
+float power_prev = 0;
+void mppt_step() {
+    float voltage_avg = (float)commutation_table[commutation_step][0] * (12.0 / PWM_MAX);
+    float motor_current_measured = (float)analogRead(CURRENT_SENSE) * (5.0 / 1024.0) / (0.1) * 1000.0;
+    float power_curr = voltage_avg * motor_current_measured / 1000.0;
+    motor_power = power_curr;
+
+    if (abs(power_curr - power_prev) > MAX_POWER_POINT_TOLERANCE * power_curr) {
+        motor_current += MAX_POWER_POINT_STEP * encoder_dir;
+        if (motor_current > MAX_POWER_POINT_CURRENT) motor_current = MAX_POWER_POINT_CURRENT;
+        if (motor_current < -MAX_POWER_POINT_CURRENT) motor_current = -MAX_POWER_POINT_CURRENT;
+
+        if (commutation_step >= 0 && commutation_step < COMMUTATION_STEPS) {
+            commutation_table[commutation_step][0] = abs(motor_current) * (PWM_MAX / MAX_POWER_POINT_CURRENT);
+        }
+    }
+    power_prev = power_curr;
+}
+
 // Function to run in loop phase
 void loop() {
+  mppt_step();
   
-  findMaxPowerPoint(); // find the maximum power point during each commutation step
-  Serial.print("Power: "); Serial.println(motor_power);
+  commutation_step = (commutation_step + encoder_dir + COMMUTATION_STEPS) % COMMUTATION_STEPS;
+  setPhasePWM();
   
-  commutation_step = (commutation_step + encoder_dir + COMMUTATION_STEPS) % COMMUTATION_STEPS; // increment or decrement the commutation step based on the encoder direction
-  
-  setPhasePWM(); // set the PWM duty cycle and enable pins for the phases
-  
-  delayMicroseconds(COMMUTATION_DELAY); // wait for the commutation delay
-  
+  // Overcurrent protection (simple software limit)
+  float current_ma = (float)analogRead(CURRENT_SENSE) * (5.0 / 1024.0) / (0.1) * 1000.0;
+  if (current_ma > MAX_POWER_POINT_CURRENT * 1.5) {
+      analogWrite(PHASE_A, 0); analogWrite(PHASE_B, 0); analogWrite(PHASE_C, 0);
+  }
+
+  delayMicroseconds(COMMUTATION_DELAY);
 }

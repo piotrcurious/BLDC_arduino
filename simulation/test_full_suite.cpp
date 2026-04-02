@@ -9,6 +9,7 @@
 
 void run_test(const char* name, int iter, int spd, float load, float fric) {
     std::cout << "TEST: " << name << " START" << std::endl;
+    pinMode(A1, OUTPUT);
     analogWrite(A1, spd);
     setMockLoad(load);
     setMockFriction(fric);
@@ -21,9 +22,9 @@ void run_test(const char* name, int iter, int spd, float load, float fric) {
 
 int main() {
     setup();
-    run_test("No-Load Spinup", 200, 800, 0.0, 0.00001);
-    run_test("Medium Load", 200, 800, 0.1, 0.00001);
-    run_test("Stall Test", 200, 800, 0.5, 0.00001);
-    run_test("Regen Test", 200, 200, 0.0, 0.00001);
+    run_test("No-Load Spinup", 2000, 800, 0.0, 0.00001);
+    run_test("Medium Load", 2000, 800, 0.1, 0.00001);
+    run_test("Stall Test", 2000, 800, 0.5, 0.00001);
+    run_test("Regen Test", 2000, 200, 0.0, 0.00001);
     return 0;
 }

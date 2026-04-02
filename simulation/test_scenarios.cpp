@@ -3,6 +3,7 @@
 
 void run_scenario(const char* name, int iterations, int spd_target, float load, float friction) {
     std::cout << "\n>>> Scenario: " << name << " (Spd:" << spd_target << " Load:" << load << " Fric:" << friction << ")" << std::endl;
+    pinMode(A1, OUTPUT);
     analogWrite(A1, spd_target);
     setMockLoad(load);
     setMockFriction(friction);
