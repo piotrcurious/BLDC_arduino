@@ -141,6 +141,18 @@ void setMockLoad(float torque) {
         write(pipe_out, s.c_str(), s.length());
     }
 }
+void setMockOpenPhase(int phase) {
+    if (pipe_out != -1) {
+        std::string s = "CMD_OPEN_PHASE_" + std::to_string(phase) + "\n";
+        write(pipe_out, s.c_str(), s.length());
+    }
+}
+void setMockStuckHall(int hall, int val) {
+    if (pipe_out != -1) {
+        std::string s = "CMD_STUCK_HALL_" + std::to_string(hall) + "_" + std::to_string(val) + "\n";
+        write(pipe_out, s.c_str(), s.length());
+    }
+}
 void setMockNoise(float level) {
     if (pipe_out != -1) {
         std::string s = "CMD_NOISE_" + std::to_string(level) + "\n";

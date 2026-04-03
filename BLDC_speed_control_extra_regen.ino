@@ -160,7 +160,11 @@ void loop() {
         dutyCycle = (int)(dutyCycle * 0.8);
     }
 
-    if (hallState < 0 || hallState > 5) return;
+    if (hallState < 0 || hallState > 5) {
+        Serial.println("FAULT: Invalid Hall State!");
+        analogWrite(PWM, 0);
+        return;
+    }
     
     analogWrite(PWM,0); // Set PWM duty cycle to 0 to avoid short circuit
     
