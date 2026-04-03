@@ -105,5 +105,7 @@ void setMockFriction(float b);
 void setMockNoise(float level);
 void setMockParamL(float L);
 void setMockParamR(float R);
+void setMockOpenPhase(int phase);
+void setMockStuckHall(int hall, int val);
 
 #endif
