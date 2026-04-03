@@ -279,7 +279,13 @@ void mppt_step() {
     float power_curr = voltage_avg * motor_current_measured / 1000.0;
     motor_power = power_curr;
 
-    if (abs(power_curr - power_prev) > MAX_POWER_POINT_TOLERANCE * power_curr) {
+    if (abs(power_curr - power_prev) > MAX_POWER_POINT_TOLERANCE * (power_curr + 0.1)) {
+        if (power_curr > power_prev) {
+            // Keep going in same direction
+        } else {
+            // Reverse direction
+            encoder_dir = -encoder_dir;
+        }
         motor_current += MAX_POWER_POINT_STEP * encoder_dir;
         if (motor_current > MAX_POWER_POINT_CURRENT) motor_current = MAX_POWER_POINT_CURRENT;
         if (motor_current < -MAX_POWER_POINT_CURRENT) motor_current = -MAX_POWER_POINT_CURRENT;
