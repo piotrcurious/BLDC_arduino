@@ -1,0 +1,5 @@
+# Simulation build artifacts
+test_*
+*.fifo
+telemetry.csv
+*.log

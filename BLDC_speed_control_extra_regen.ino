@@ -16,6 +16,7 @@
 // Define pins for current sense and speed control
 #define CUR_SENSE A0
 #define SPD_CTRL A1
+#define TEMP_SENSE A2
 
 // Define constants for motor parameters
 #define MAX_DUTY 255 // Maximum PWM duty cycle
@@ -42,12 +43,12 @@ float boostRatio;
 // Each column corresponds to a PWM/enable pin (0-5)
 // The values are either 0 (low) or 1 (high)
 const int commTable[6][6] = {
-  {0, 1, 1, 0, 0, 1}, // hallState = 0 -> EN_AL, EN_BH, EN_CL low (active)
-  {0, 1, 1, 0, 1, 0}, // hallState = 1 -> EN_AL, EN_BH, EN_CH low (active)
-  {1, 0, 1, 0, 1, 0}, // hallState = 2 -> EN_AH, EN_BL, EN_CH low (active)
-  {1, 0, 1, 1, 0, 0}, // hallState = 3 -> EN_AH, EN_BL, EN_CL low (active)
-  {1, 0, 0, 1, 0, 1}, // hallState = 4 -> EN_AH, EN_BH, EN_CL low (active)
-  {0, 1, 0, 1, 0, 1}, // hallState = 5 -> EN_AL, EN_BH, EN_CH low (active)
+  {1, 0, 0, 1, 0, 0}, // hallState = 0 (Hall 5): AH=1, BL=1
+  {0, 0, 0, 1, 1, 0}, // hallState = 1 (Hall 1): CH=1, BL=1
+  {0, 1, 0, 0, 1, 0}, // hallState = 2 (Hall 3): CH=1, AL=1
+  {0, 1, 1, 0, 0, 0}, // hallState = 3 (Hall 2): BH=1, AL=1
+  {0, 0, 1, 0, 0, 1}, // hallState = 4 (Hall 6): BH=1, CL=1
+  {1, 0, 0, 0, 0, 1}  // hallState = 5 (Hall 4): AH=1, CL=1
 };
 
 void setup() {
@@ -158,6 +159,13 @@ void loop() {
     current = analogRead(CUR_SENSE);
     if (current > 800) { // Approx 4A
         dutyCycle = (int)(dutyCycle * 0.8);
+    }
+
+    // Thermal protection
+    int temperature = analogRead(TEMP_SENSE);
+    if (temperature > 800) { // Approx 80C
+        dutyCycle = (int)(dutyCycle * 0.5);
+        Serial.println("WARNING: Overheating! Throttling...");
     }
 
     if (hallState < 0 || hallState > 5) {

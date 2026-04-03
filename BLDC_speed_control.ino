@@ -16,6 +16,7 @@
 // Define pins for current sense and speed control
 #define CUR_SENSE A0
 #define SPD_CTRL A1
+#define TEMP_SENSE A2
 
 // RC filter compensation constant
 #define CAPACITOR 0.0000001 // 100nF
@@ -43,12 +44,12 @@ float impedance; // Impedance in ohms
 // Each column corresponds to a PWM/enable pin (0-5)
 // The values are either 0 (low) or 1 (high)
 const int commTable[6][6] = {
-  {0, 1, 1, 0, 0, 1}, // hallState = 0 -> EN_AL, EN_BH, EN_CL high
-  {0, 1, 1, 0, 1, 0}, // hallState = 1 -> EN_AL, EN_BH, EN_CH high
-  {1, 0, 1, 0, 1, 0}, // hallState = 2 -> EN_AH, EN_BL, EN_CH high
-  {1, 0, 1, 1, 0, 0}, // hallState = 3 -> EN_AH, EN_BL, EN_CL high
-  {1, 0, 0, 1, 0, 1}, // hallState = 4 -> EN_AH, EN_BH, EN_CL high
-  {0, 1, 0, 1, 0, 1} // hallState = 5 -> EN_AL, EN_BH, EN_CH high
+  {1, 0, 0, 1, 0, 0}, // hallState = 0 (Hall 5): AH=1, BL=1
+  {0, 0, 0, 1, 1, 0}, // hallState = 1 (Hall 1): CH=1, BL=1
+  {0, 1, 0, 0, 1, 0}, // hallState = 2 (Hall 3): CH=1, AL=1
+  {0, 1, 1, 0, 0, 0}, // hallState = 3 (Hall 2): BH=1, AL=1
+  {0, 0, 1, 0, 0, 1}, // hallState = 4 (Hall 6): BH=1, CL=1
+  {1, 0, 0, 0, 0, 1}  // hallState = 5 (Hall 4): AH=1, CL=1
 };
 
 void setup() {
@@ -161,11 +162,18 @@ void loop() {
       dutyCycle = map(speed,MIN_SPD,MAX_SPD-BRAKE_THR,MAX_DUTY,MIN_DUTY); // Map braking to duty cycle
      }
     if (dutyCycle > MAX_DUTY - impedance) { // If duty cycle exceeds maximum allowed value based on impedance
-      dutyCycle = MAX_DUTY - impedance; // Limit duty cycle to maximum allowed value
+      dutyCycle = MAX_DUTY - (int)impedance; // Limit duty cycle to maximum allowed value
     }
     if (dutyCycle < MIN_DUTY) dutyCycle = MIN_DUTY;
 
-    if (hallState < 0 || hallState > 5) return;
+    // Safety Protections
+    if (analogRead(CUR_SENSE) > 800) dutyCycle = (int)(dutyCycle * 0.8);
+    if (analogRead(TEMP_SENSE) > 800) dutyCycle = (int)(dutyCycle * 0.5);
+
+    if (hallState < 0 || hallState > 5) {
+        analogWrite(PWM, 0);
+        return;
+    }
     
     analogWrite(PWM,0); // Set PWM duty cycle to 0
     // to prevent short circuit during change of enable pins

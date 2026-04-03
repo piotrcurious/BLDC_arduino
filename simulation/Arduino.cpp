@@ -25,16 +25,11 @@ static int pipe_out = -1;
 
 void sync_sim() {
     if (pipe_in == -1) {
-        std::cout << "Arduino: Opening pipes..." << std::endl;
-        pipe_out = open("/tmp/arduino_in", O_WRONLY);
-        pipe_in = open("/tmp/arduino_out", O_RDONLY);
-        if (pipe_in == -1 || pipe_out == -1) {
-            return;
-        }
-        std::cout << "Arduino: Pipes opened." << std::endl;
+        pipe_out = open("arduino_in.fifo", O_WRONLY);
+        pipe_in = open("arduino_out.fifo", O_RDONLY);
+        if (pipe_in == -1 || pipe_out == -1) return;
     }
 
-    // Write all outputs to sim
     for (auto const& [pin, state] : pins) {
         if (state.mode == OUTPUT || pin == A1) {
             std::string s = "P" + std::to_string(pin) + "D" + std::to_string(state.digital_val) + "A" + std::to_string(state.analog_val) + "\n";
@@ -43,7 +38,6 @@ void sync_sim() {
     }
     write(pipe_out, "SYNC\n", 5);
 
-    // Read inputs from sim
     char buf[1024];
     int n;
     std::string s = "";
@@ -63,15 +57,11 @@ void sync_sim() {
             std::string line = s.substr(pos, end - pos);
             int p, d, a;
             if (sscanf(line.c_str(), "I%dD%dA%d", &p, &d, &a) == 3) {
-                // Only update pins that are NOT being driven as OUTPUT by the sketch
-                // Exception: Always update sensors A0, Hall pins, and telemetry pins
-                if (pins[p].mode == INPUT || pins[p].mode == INPUT_PULLUP || p == A0 || (p >= 2 && p <= 4) || p == 8 || p == 9 || (p >= 12 && p <= 13)) {
+                if (pins[p].mode == INPUT || pins[p].mode == INPUT_PULLUP || p == A0 || (p >= 2 && p <= 4) || (p >= 12 && p <= 13) || p >= 14) {
                     int old_d = pins[p].digital_val;
                     pins[p].digital_val = d;
                     pins[p].analog_val = a;
-                    if (old_d != d && interrupts.count(p)) {
-                        interrupts[p]();
-                    }
+                    if (old_d != d && interrupts.count(p)) interrupts[p]();
                 }
             }
             pos = end + 1;
@@ -98,13 +88,11 @@ void delayMicroseconds(unsigned int us) {
 }
 
 unsigned long millis() {
-    auto now = std::chrono::steady_clock::now();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(now - sim_start_time).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - sim_start_time).count();
 }
 
 unsigned long micros() {
-    auto now = std::chrono::steady_clock::now();
-    return std::chrono::duration_cast<std::chrono::microseconds>(now - sim_start_time).count();
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - sim_start_time).count();
 }
 
 long map(long x, long in_min, long in_max, long out_min, long out_max) {
@@ -141,15 +129,9 @@ void setMockLoad(float torque) {
         write(pipe_out, s.c_str(), s.length());
     }
 }
-void setMockOpenPhase(int phase) {
+void setMockFriction(float b) {
     if (pipe_out != -1) {
-        std::string s = "CMD_OPEN_PHASE_" + std::to_string(phase) + "\n";
-        write(pipe_out, s.c_str(), s.length());
-    }
-}
-void setMockStuckHall(int hall, int val) {
-    if (pipe_out != -1) {
-        std::string s = "CMD_STUCK_HALL_" + std::to_string(hall) + "_" + std::to_string(val) + "\n";
+        std::string s = "CMD_FRIC_" + std::to_string(b) + "\n";
         write(pipe_out, s.c_str(), s.length());
     }
 }
@@ -171,9 +153,15 @@ void setMockParamR(float R) {
         write(pipe_out, s.c_str(), s.length());
     }
 }
-void setMockFriction(float b) {
+void setMockOpenPhase(int phase) {
     if (pipe_out != -1) {
-        std::string s = "CMD_FRIC_" + std::to_string(b) + "\n";
+        std::string s = "CMD_OPEN_PHASE_" + std::to_string(phase) + "\n";
+        write(pipe_out, s.c_str(), s.length());
+    }
+}
+void setMockStuckHall(int hall, int val) {
+    if (pipe_out != -1) {
+        std::string s = "CMD_STUCK_HALL_" + std::to_string(hall) + "_" + std::to_string(val) + "\n";
         write(pipe_out, s.c_str(), s.length());
     }
 }
