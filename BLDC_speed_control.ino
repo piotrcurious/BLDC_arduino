@@ -183,7 +183,7 @@ void loop() {
     digitalWrite(EN_BL,(mode > -1) ? commTable[hallState][3] : !commTable[hallState][3]); // Set EN_BL according to table and mode
     digitalWrite(EN_CH,(mode > -1) ? commTable[hallState][4] : !commTable[hallState][4]); // Set EN_CH according to table and mode
     digitalWrite(EN_CL,(mode > -1) ? commTable[hallState][5] : !commTable[hallState][5]); // Set EN_CL according to table and mode
-    analogWrite(PWM,dutyCycle); // Set PWM duty cycle 
+    analogWrite(PWM,dutyCycle); // Set PWM duty cycle
     
   }
   
