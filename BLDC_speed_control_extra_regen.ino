@@ -17,6 +17,14 @@
 #define CUR_SENSE A0
 #define SPD_CTRL A1
 #define TEMP_SENSE A2
+#define SPD_FEEDBACK 18 // A4
+
+// PID Constants
+float Kp = 0.5;
+float Ki = 0.1;
+float Kd = 0.01;
+float integral = 0;
+float prevError = 0;
 
 // Define constants for motor parameters
 #define MAX_DUTY 255 // Maximum PWM duty cycle
@@ -100,17 +108,21 @@ void setup() {
    float inductiveReactance = 0; // Inductive reactance in ohms
    float coilResistance = 10; // Coil resistance in ohms (assumed value)
    
+   // Enhanced calibration logic
    while (pulseWidth < MAX_DUTY) {
-     pulseWidth++; // Increment pulse width by 1 microsecond
-     analogWrite(PWM,pulseWidth); // Set PWM duty cycle 
-     delay(10); // Wait for 10 milliseconds
-     current = analogRead(CUR_SENSE); // Read current from ADC
-     deltaCurrent = current - prevCurrent; // Calculate change in current
-     prevCurrent = current; // Update previous current
-     if (deltaCurrent < 0.01) { // If change in current is negligible
-       transitionFrequency = 1000000 / pulseWidth; // Calculate transition frequency from pulse width
-       break; // Exit the loop
+     pulseWidth++;
+     analogWrite(PWM,pulseWidth);
+     delay(20); // Longer wait for simulation stability
+     current = analogRead(CUR_SENSE);
+     if (current > 50) { // Wait until at least 0.25A is flowing (20 units/A)
+       deltaCurrent = current - prevCurrent;
+       if (deltaCurrent < 1 && pulseWidth > 10) { // Negligible change or saturation
+         transitionFrequency = 1000000 / pulseWidth;
+         break;
+       }
      }
+     prevCurrent = current;
+     if (pulseWidth >= MAX_DUTY - 1) transitionFrequency = 50000; // Fallback
    }
 
    // Calculate inductive reactance and impedance from transition frequency and coil resistance
@@ -135,18 +147,47 @@ void loop() {
   
   hallState = readHallSensors(); // Read current hall sensor state
   
-  if (hallState != prevHallState) { // If hall sensor state has changed
+  // Force initial commutation or update if mode active
+  if (hallState != prevHallState || (dutyCycle > 0 && mode != 0)) {
     
-    prevHallState = hallState; // Update previous hall sensor state
+    if (hallState != prevHallState && hallState >= 0 && hallState <= 5) {
+        prevHallState = hallState; // Update previous hall sensor state
+
+        // Commutation logic update
+        if (mode == 1) {
+            analogWrite(PWM,0);
+            digitalWrite(EN_AH, commTable[hallState][0]);
+            digitalWrite(EN_AL, commTable[hallState][1]);
+            digitalWrite(EN_BH, commTable[hallState][2]);
+            digitalWrite(EN_BL, commTable[hallState][3]);
+            digitalWrite(EN_CH, commTable[hallState][4]);
+            digitalWrite(EN_CL, commTable[hallState][5]);
+            analogWrite(PWM,dutyCycle);
+        }
+    }
     
     speed = analogRead(SPD_CTRL); // Read desired speed from ADC
-    
     mode = determineMode(); // Determine current mode based on speed
     
-   // dutyCycle = map(speed,MIN_SPD,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
- 
-   if(mode == 1){
-      dutyCycle = map(speed,MIN_SPD+BRAKE_THR,MAX_SPD,MIN_DUTY,MAX_DUTY); // Map speed to duty cycle
+   if (mode == 0) {
+       dutyCycle = 0;
+       integral = 0;
+       prevError = 0;
+   }
+   else if(mode == 1){
+      // Closed-loop PID Speed Control
+      int currentSpeed = analogRead(SPD_FEEDBACK);
+      float error = (float)speed - (float)currentSpeed;
+      integral += error;
+      if (integral > 1000) integral = 1000;
+      if (integral < -1000) integral = -1000;
+      float derivative = error - prevError;
+      float pidOutput = Kp * error + Ki * integral + Kd * derivative;
+      prevError = error;
+
+      dutyCycle = (int)pidOutput;
+      if (dutyCycle > MAX_DUTY) dutyCycle = MAX_DUTY;
+      if (dutyCycle < MIN_DUTY) dutyCycle = MIN_DUTY;
     } else {
       dutyCycle = map(speed,MIN_SPD+BRAKE_BOOST,MAX_SPD-BRAKE_THR,MAX_DUTY,MIN_DUTY); // Map braking to duty cycle
      }

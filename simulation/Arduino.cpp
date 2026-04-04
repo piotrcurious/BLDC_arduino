@@ -31,9 +31,9 @@ void sync_sim() {
     }
 
     for (auto const& [pin, state] : pins) {
-        if (state.mode == OUTPUT || pin == A1) {
-            std::string s = "P" + std::to_string(pin) + "D" + std::to_string(state.digital_val) + "A" + std::to_string(state.analog_val) + "\n";
-            write(pipe_out, s.c_str(), s.length());
+        std::string s = "P" + std::to_string(pin) + "D" + std::to_string(state.digital_val) + "A" + std::to_string(state.analog_val) + "\n";
+        if (write(pipe_out, s.c_str(), s.length()) == -1) {
+            std::cerr << "Arduino: Write error to pipe" << std::endl;
         }
     }
     write(pipe_out, "SYNC\n", 5);
@@ -41,12 +41,21 @@ void sync_sim() {
     char buf[1024];
     int n;
     std::string s = "";
+    auto read_start = std::chrono::steady_clock::now();
     while (true) {
         n = read(pipe_in, buf, sizeof(buf)-1);
-        if (n <= 0) break;
-        buf[n] = 0;
-        s += buf;
-        if (s.find("ACK\n") != std::string::npos) break;
+        if (n > 0) {
+            buf[n] = 0;
+            s += buf;
+            if (s.find("ACK\n") != std::string::npos) break;
+        }
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - read_start).count() > 5) {
+             std::cerr << "Arduino: FATAL - Simulator connection timeout! Safety shutdown." << std::endl;
+             for(int i=0; i<32; i++) { pins[i].digital_val = 0; pins[i].analog_val = 0; }
+             return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     if (s.find("ACK\n") != std::string::npos) {
@@ -57,11 +66,14 @@ void sync_sim() {
             std::string line = s.substr(pos, end - pos);
             int p, d, a;
             if (sscanf(line.c_str(), "I%dD%dA%d", &p, &d, &a) == 3) {
-                if (pins[p].mode == INPUT || pins[p].mode == INPUT_PULLUP || p == A0 || (p >= 2 && p <= 4) || (p >= 12 && p <= 13) || p >= 14) {
-                    int old_d = pins[p].digital_val;
+                // Debug: Always accept updates for sensor pins A0..A5
+                if (p >= 14 && p <= 19) {
                     pins[p].digital_val = d;
                     pins[p].analog_val = a;
-                    if (old_d != d && interrupts.count(p)) interrupts[p]();
+                }
+                else if (pins[p].mode == INPUT || pins[p].mode == INPUT_PULLUP || (p >= 2 && p <= 4) || (p >= 12 && p <= 13)) {
+                    pins[p].digital_val = d;
+                    pins[p].analog_val = a;
                 }
             }
             pos = end + 1;
@@ -81,8 +93,9 @@ void delay(unsigned long ms) {
 
 void delayMicroseconds(unsigned int us) {
     auto start = std::chrono::steady_clock::now();
+    // Always sync simulation for delays > 0 to maintain lockstep and avoid deadlocks
+    sync_sim();
     while (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count() < us) {
-        if (us >= 1000) sync_sim();
         std::this_thread::sleep_for(std::chrono::microseconds(10));
     }
 }
